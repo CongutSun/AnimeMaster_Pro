@@ -1,6 +1,6 @@
 import requests, urllib.parse, datetime, json, os, hashlib
 import queue, time
-import concurrent.futures # ✨ 新增：用于并发限制
+import concurrent.futures 
 from bs4 import BeautifulSoup
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QImage, QPixmap
@@ -11,9 +11,10 @@ bgm_session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; 
 IMAGE_CACHE = {}
 
 class BangumiAPI:
-    def search(self, keyword):
+    # ✨ 修改：加入了 type_ 参数以支持搜书
+    def search(self, keyword, type_=2):
         try:
-            res = bgm_session.get(f"https://api.bgm.tv/search/subject/{urllib.parse.quote(keyword)}?type=2", timeout=10)
+            res = bgm_session.get(f"https://api.bgm.tv/search/subject/{urllib.parse.quote(keyword)}?type={type_}", timeout=10)
             return res.json().get('list', []) if res.status_code == 200 else None
         except: return None
         
@@ -29,10 +30,11 @@ class BangumiAuthAPI:
         self.token = APP_CONFIG.get('bgm_token', '')
         self.headers = {'Authorization': f'Bearer {self.token}' if self.token else ''}
         
-    def get_my_collection(self, status_type=3):
+    # ✨ 修改：加入了 subject_type 支持加载书籍列表
+    def get_my_collection(self, status_type=3, subject_type=2):
         if not self.username or not self.token: return None, "未配置账号"
         try:
-            res = bgm_session.get(f"https://api.bgm.tv/v0/users/{self.username}/collections?subject_type=2&type={status_type}&limit=50", headers=self.headers, timeout=10)
+            res = bgm_session.get(f"https://api.bgm.tv/v0/users/{self.username}/collections?subject_type={subject_type}&type={status_type}&limit=50", headers=self.headers, timeout=10)
             return (res.json().get('data', []), "") if res.status_code == 200 else (None, "同步失败")
         except: return None, "网络异常"
         
@@ -126,11 +128,12 @@ class YearTopWorker(QThread):
             except: results = []
         self.data_fetched.emit(results)
 
+# ✨ 修改：加入了 subject_type
 class MyCollectionWorker(QThread):
     data_fetched = pyqtSignal(list, str) 
-    def __init__(self, status_type=3): super().__init__(); self.status_type = status_type
+    def __init__(self, status_type=3, subject_type=2): super().__init__(); self.status_type = status_type; self.subject_type = subject_type
     def run(self):
-        data, err = BangumiAuthAPI().get_my_collection(self.status_type)
+        data, err = BangumiAuthAPI().get_my_collection(self.status_type, self.subject_type)
         self.data_fetched.emit(data or [], err)
 
 class DetailWorker(QThread):
@@ -186,7 +189,6 @@ class EpProgressWorker(QThread):
         success, msg = BangumiAuthAPI().update_ep_progress(self.sid, self.ep)
         self.update_done.emit(success, msg)
 
-# ✨ 核心重构：使用 5 个工人的线程池，图片加载起飞！
 class GlobalImageFetcher(QThread):
     image_loaded = pyqtSignal(str, QImage)
     

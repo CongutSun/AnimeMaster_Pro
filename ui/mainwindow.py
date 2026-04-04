@@ -10,7 +10,6 @@ from ui.theme import apply_global_theme
 from api.bangumi import CalendarWorker, YearTopWorker, GlobalImageFetcher, BangumiAPI
 from api.scraper import SearchWorker, SUPPORTED_SITES
 from ui.components import CustomTitleBar, AnimeCard, setup_frameless_dialog, BackgroundFrame, CustomMessageBox
-# ✨ 引入新写的弹窗
 from ui.dialogs import CloseConfirmDialog, SettingsDialog, MyCollectionDialog, DetailDialog, EpisodeDialog, AliasSelectDialog
 
 class MainWindow(QMainWindow):
@@ -47,14 +46,19 @@ class MainWindow(QMainWindow):
         self.grip.setFixedSize(15, 15)
         
         toolbar = QHBoxLayout()
+        # ✨ 修改：加入搜索分类下拉框
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["📺 搜番剧", "📚 搜书籍"])
+        self.type_combo.setFixedWidth(100)
+        
         self.input = QLineEdit()
-        self.input.setPlaceholderText("搜番剧，例如：葬送的芙莉莲")
+        self.input.setPlaceholderText("输入关键字，例如：葬送的芙莉莲")
         self.btn = QPushButton("🔍 搜索")
         self.btn.setFixedWidth(100)
         self.btn.clicked.connect(self.run_search)
         self.input.returnPressed.connect(self.run_search)
         
-        my_btn = QPushButton("📚 我的追番")
+        my_btn = QPushButton("📚 我的收藏")
         my_btn.setObjectName("RedBtn")
         my_btn.clicked.connect(self.open_my)
         
@@ -66,6 +70,7 @@ class MainWindow(QMainWindow):
         set_btn.setObjectName("GrayBtn")
         set_btn.clicked.connect(self.open_set)
         
+        toolbar.addWidget(self.type_combo)
         toolbar.addWidget(self.input)
         toolbar.addWidget(self.btn)
         toolbar.addWidget(my_btn)
@@ -244,7 +249,7 @@ class MainWindow(QMainWindow):
         self.clear_grid(self.today_grid)
         for i, item in enumerate(items):
             c = AnimeCard(item['id'], item.get('name_cn') or item['name'])
-            c.clicked.connect(self.handle_click)
+            c.clicked.connect(lambda sid, name: self.handle_click(sid, name, False))
             self.today_grid.addWidget(c, i // 4, i % 4)
             if item.get('images', {}).get('large'):
                 self.request_image(item['images']['large'], c)
@@ -257,7 +262,7 @@ class MainWindow(QMainWindow):
             score = item.get('rating', {}).get('score', 0)
             name = f"⭐{score} {item.get('name_cn') or item['name']}"
             c = AnimeCard(item['id'], name)
-            c.clicked.connect(self.handle_click)
+            c.clicked.connect(lambda sid, name: self.handle_click(sid, name, False))
             self.top_grid.addWidget(c, i // 4, i % 4)
             if item.get('images', {}).get('large'):
                 self.request_image(item['images']['large'], c)
@@ -275,7 +280,9 @@ class MainWindow(QMainWindow):
         self.btn.setEnabled(False)
         self.clear_grid(self.search_grid)
         
-        self.search_w = SearchWorkerThread(self.api, kw)
+        # ✨ 修改：区分类型搜索
+        search_type = 1 if self.type_combo.currentIndex() == 1 else 2
+        self.search_w = SearchWorkerThread(self.api, kw, search_type)
         self.threads.append(self.search_w)
         self.search_w.search_done.connect(self.render_search)
         self.search_w.finished.connect(lambda: self.cleanup_thread(self.search_w))
@@ -285,15 +292,20 @@ class MainWindow(QMainWindow):
         if res:
             for i, item in enumerate(res):
                 c = AnimeCard(item['id'], item.get('name_cn') or item['name'])
-                c.clicked.connect(self.handle_click)
+                c.clicked.connect(self.handle_search_click)
                 self.search_grid.addWidget(c, i // 4, i % 4)
                 if item.get('images', {}).get('common'):
                     self.request_image(item['images']['common'], c)
         self.btn.setEnabled(True)
 
-    def handle_click(self, sid, name):
+    # ✨ 修改：加入对是否是书籍的判断
+    def handle_search_click(self, sid, name):
+        is_book = self.type_combo.currentIndex() == 1
+        self.handle_click(sid, name, is_book)
+
+    def handle_click(self, sid, name, is_book=False):
         clean_name = name.split(" ", 1)[1] if name.startswith("⭐") else name
-        if DetailDialog(sid, clean_name, self).exec() == QDialog.DialogCode.Accepted: 
+        if DetailDialog(sid, clean_name, is_book, self).exec() == QDialog.DialogCode.Accepted: 
             self.show_config(clean_name, sid)
             
     def show_config(self, name, sid=None):
@@ -324,7 +336,6 @@ class MainWindow(QMainWindow):
         kw_lay.addWidget(trans_btn)
         lay.addLayout(kw_lay)
         
-        # ✨ 重写提取逻辑：当拿到多个别名时，弹窗让用户自由选择
         def do_translate():
             if not sid:
                 CustomMessageBox.show(conf, "提示", "抱歉，直接搜索暂无法提取别名，请从首页卡片点击进入。", "warning")
@@ -342,7 +353,6 @@ class MainWindow(QMainWindow):
                     if len(aliases) == 1:
                         kw_in.setText(aliases[0])
                     else:
-                        # 弹出供用户自由选择的列表框
                         dlg = AliasSelectDialog(aliases, conf)
                         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_alias:
                             kw_in.setText(dlg.selected_alias)
@@ -411,7 +421,6 @@ class MainWindow(QMainWindow):
     def scrap(self, name, sites, q, e, incl, diag, btn):
         if not sites: CustomMessageBox.show(diag, "提示", "请选择搜索源！", "warning"); return
         
-        # ✨ 初始显示为搜刮准备状态
         total_sites = len(sites)
         btn.setEnabled(False)
         btn.setText(f"⏳ 搜刮中 (0/{total_sites})...")
@@ -419,7 +428,6 @@ class MainWindow(QMainWindow):
         self.sw = SearchWorker(name, sites, q, e, incl)
         self.threads.append(self.sw) 
         
-        # ✨ 将进度反馈实时显示在按钮文字上
         def on_prog(c, t, s):
             btn.setText(f"⏳ 搜刮中 ({c}/{t})...")
             
@@ -431,25 +439,23 @@ class MainWindow(QMainWindow):
     def show_eps(self, stat, msg, res, errors, diag):
         diag.accept()
         
-        # ✨ 把各站的报错收集起来，给用户展示
         if errors:
             err_text = "\n".join(errors)
             if not res:
-                # 没有任何结果，展示错误详情
                 CustomMessageBox.show(self, "搜刮失败", f"很遗憾，未找到可用资源。\n各站反馈如下：\n\n{err_text}", "error")
                 return
         
         if stat == "success": EpisodeDialog(self.sw.name, res, self).exec()
         else: CustomMessageBox.show(self, "提示", msg, "warning")
 
+# ✨ 修改：加入了 type_
 class SearchWorkerThread(QThread):
     search_done = pyqtSignal(list)
-    def __init__(self, api, kw): super().__init__(); self.api = api; self.kw = kw
-    def run(self): self.search_done.emit(self.api.search(self.kw) or [])
+    def __init__(self, api, kw, type_=2): super().__init__(); self.api = api; self.kw = kw; self.type_ = type_
+    def run(self): self.search_done.emit(self.api.search(self.kw, self.type_) or [])
 
-# ✨ 全面升级：将所有的中英文别名和罗马音都扒下来做成列表
 class AliasFetcherThread(QThread):
-    alias_fetched = pyqtSignal(list) # 注意这里改成了 list
+    alias_fetched = pyqtSignal(list) 
     
     def __init__(self, sid): 
         super().__init__()
@@ -467,14 +473,10 @@ class AliasFetcherThread(QThread):
                 data = r.json()
                 aliases = []
                 
-                # 1. 尝试添加原名 (通常是罗马音或者原版语言名)
                 if data.get('name'): aliases.append(data.get('name'))
-                
-                # 2. 遍历 infobox 找寻【别名】或【英文名】
                 for box in data.get('infobox', []):
                     if box.get('key') in ['别名', '英文名', '日文名']:
                         val = box.get('value')
-                        # Bangumi 的别名有时候是个列表，有时候是个长字符串
                         if isinstance(val, list):
                             for v in val:
                                 if isinstance(v, dict) and 'v' in v:
@@ -482,11 +484,9 @@ class AliasFetcherThread(QThread):
                         elif isinstance(val, str):
                             aliases.append(val)
                             
-                # 3. 保底：加上中文名
                 if not aliases and data.get('name_cn'):
                     aliases.append(data.get('name_cn'))
 
-                # 4. 列表去重，同时保留顺序
                 unique_aliases = list(dict.fromkeys(aliases))
                 self.alias_fetched.emit(unique_aliases)
             else:

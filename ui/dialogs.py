@@ -10,7 +10,6 @@ from ui.theme import apply_global_theme
 from api.bangumi import BangumiAuthAPI, MyCollectionWorker, DetailWorker, CollectionUpdateWorker, EpProgressWorker
 from ui.components import setup_frameless_dialog, CustomMessageBox
 
-# ✨ 新增：用于展示和选择多个别名的弹窗
 class AliasSelectDialog(QDialog):
     def __init__(self, aliases, parent=None):
         super().__init__(parent)
@@ -45,7 +44,6 @@ class AliasSelectDialog(QDialog):
         else:
             CustomMessageBox.show(self, "提示", "请先在列表中点击选中一项", "warning")
 
-# 以下均为原内容，保持不变
 class ImageCropPreview(QWidget):
     ratio_changed = pyqtSignal(int)
     def __init__(self, parent=None):
@@ -163,10 +161,15 @@ class SettingsDialog(QDialog):
         form_right_1 = QFormLayout()
         self.host_in = QLineEdit(APP_CONFIG.get('qbt_host', 'localhost'))
         self.port_in = QLineEdit(str(APP_CONFIG.get('qbt_port', 8080)))
-        self.qbt_path_in = QLineEdit(APP_CONFIG.get('qbt_path', ''))
         
+        self.qbt_path_in = QLineEdit(APP_CONFIG.get('qbt_path', ''))
         qbt_btn = QPushButton("浏览..."); qbt_btn.setObjectName("GrayBtn"); qbt_btn.clicked.connect(self.choose_qbt)
         qbt_layout = QHBoxLayout(); qbt_layout.addWidget(self.qbt_path_in); qbt_layout.addWidget(qbt_btn)
+
+        # ✨ 修改：加入默认下载路径
+        self.qbt_dl_path_in = QLineEdit(APP_CONFIG.get('qbt_dl_path', ''))
+        qbt_dl_btn = QPushButton("浏览..."); qbt_dl_btn.setObjectName("GrayBtn"); qbt_dl_btn.clicked.connect(self.choose_qbt_dl)
+        qbt_dl_layout = QHBoxLayout(); qbt_dl_layout.addWidget(self.qbt_dl_path_in); qbt_dl_layout.addWidget(qbt_dl_btn)
         
         self.cookie_in = QLineEdit(APP_CONFIG.get('monika_cookie', ''))
         self.cookie_in.setPlaceholderText("填入 MonikaDesign 的 Cookie")
@@ -174,7 +177,8 @@ class SettingsDialog(QDialog):
         self.bgm_token_in = QLineEdit(APP_CONFIG.get('bgm_token', ''))
         self.bgm_token_in.setEchoMode(QLineEdit.EchoMode.Password)
         
-        form_right_1.addRow("qBit WebUI:", self.host_in); form_right_1.addRow("qBit 端口:", self.port_in); form_right_1.addRow("qBit .exe:", qbt_layout)
+        form_right_1.addRow("qBit WebUI:", self.host_in); form_right_1.addRow("qBit 端口:", self.port_in)
+        form_right_1.addRow("qBit .exe:", qbt_layout); form_right_1.addRow("默认下载路径:", qbt_dl_layout)
         form_right_1.addRow("Monika Cookie:", self.cookie_in); form_right_1.addRow("Bgm 账号:", self.bgm_user_in); form_right_1.addRow("Bgm Token:", self.bgm_token_in)
         right_lay.addLayout(form_right_1)
         
@@ -215,6 +219,9 @@ class SettingsDialog(QDialog):
     def choose_bg(self):
         f, _ = QFileDialog.getOpenFileName(self, "选择背景", "", "Images (*.png *.jpg *.jpeg)")
         if f: self.bg_path_in.setText(f)
+    def choose_qbt_dl(self):
+        d = QFileDialog.getExistingDirectory(self, "选择下载保存路径")
+        if d: self.qbt_dl_path_in.setText(d)
     def on_bg_changed(self): self.bg_preview.load_image(self.bg_path_in.text().strip())
     def on_ratio_dragged(self, val): self.current_align = val
     def choose_qbt(self):
@@ -225,7 +232,8 @@ class SettingsDialog(QDialog):
         try:
             APP_CONFIG['close_action'] = self.close_box.currentData(); APP_CONFIG['theme'] = self.theme_box.currentData(); APP_CONFIG['bg_image'] = self.bg_path_in.text().strip()
             APP_CONFIG['bg_align'] = self.current_align; APP_CONFIG['qbt_host'] = self.host_in.text().strip(); APP_CONFIG['qbt_port'] = int(self.port_in.text().strip() or 8080)
-            APP_CONFIG['qbt_path'] = self.qbt_path_in.text().strip(); APP_CONFIG['monika_cookie'] = self.cookie_in.text().strip(); APP_CONFIG['bgm_username'] = self.bgm_user_in.text().strip()
+            APP_CONFIG['qbt_path'] = self.qbt_path_in.text().strip(); APP_CONFIG['qbt_dl_path'] = self.qbt_dl_path_in.text().strip()
+            APP_CONFIG['monika_cookie'] = self.cookie_in.text().strip(); APP_CONFIG['bgm_username'] = self.bgm_user_in.text().strip()
             APP_CONFIG['bgm_token'] = self.bgm_token_in.text().strip(); APP_CONFIG['custom_rss'] = self.custom_rss_data
             save_config(APP_CONFIG); update_session_headers(); apply_global_theme()
             if self.parent() and hasattr(self.parent(), 'main_frame'):
@@ -235,8 +243,9 @@ class SettingsDialog(QDialog):
         except: pass
 
 class DetailDialog(QDialog):
-    def __init__(self, sid, name, parent=None):
-        super().__init__(parent); self.sid = sid; layout = setup_frameless_dialog(self, "番剧详情与评价", 580, 720)
+    # ✨ 修改：加入书籍判断，禁用下载功能
+    def __init__(self, sid, name, is_book=False, parent=None):
+        super().__init__(parent); self.sid = sid; self.is_book = is_book; layout = setup_frameless_dialog(self, "详情与评价", 580, 720)
         layout.addWidget(QLabel(f"<h2 style='text-align: center; margin-bottom: 0px;'>{name}</h2>"))
         self.info = QLabel("跨越次元壁请求中..."); self.info.setObjectName("InfoPanel"); self.info.setWordWrap(True); layout.addWidget(self.info)
         self.my_review = QLabel(); self.my_review.setWordWrap(True); self.my_review.hide(); layout.addWidget(self.my_review)
@@ -254,14 +263,19 @@ class DetailDialog(QDialog):
         self.save_btn = QPushButton("💾 云端同步"); self.save_btn.setObjectName("OrangeBtn"); self.save_btn.clicked.connect(self.save_collection); ctrl_lay.addWidget(self.save_btn, 1, 3)
         layout.addWidget(self.ctrl_frame)
         self.desc = QTextEdit(); self.desc.setReadOnly(True)
-        self.btn = QPushButton("🚀 去搜刮下载"); self.btn.setEnabled(False); self.btn.clicked.connect(self.accept)
+        
+        self.btn = QPushButton("🚀 去搜刮下载" if not is_book else "📚 书籍不支持搜刮下载")
+        self.btn.setEnabled(False)
+        if not is_book: self.btn.clicked.connect(self.accept)
+        else: self.btn.setObjectName("GrayBtn")
+        
         layout.addWidget(self.desc); layout.addWidget(self.btn)
         self.w = DetailWorker(sid); self.w.detail_fetched.connect(self.upd); self.w.start()
 
     def upd(self, d):
         if d['info']:
             s = d['info'].get('rating', {}).get('score', '暂无'); dt = d['info'].get('date', '未知')
-            self.info.setText(f"<b>⭐ 官方评分：</b><font color='#E6A23C'><b>{s}</b></font> &nbsp;&nbsp;|&nbsp;&nbsp; <b>📅 首播：</b>{dt} <br><br><b>📺 全网放送进度：</b>已播 <font color='#3B82F6'><b>{d['episodes']['aired']}</b></font> / {d['episodes']['total']} 集")
+            self.info.setText(f"<b>⭐ 官方评分：</b><font color='#E6A23C'><b>{s}</b></font> &nbsp;&nbsp;|&nbsp;&nbsp; <b>📅 首播/出版：</b>{dt} <br><br><b>📺 放送/发布进度：</b>已出 <font color='#3B82F6'><b>{d['episodes']['aired']}</b></font> / {d['episodes']['total']} 话(卷)")
             html_desc = f"<p style='line-height:1.5;'>{d['info'].get('summary', '暂无官方剧情介绍...')}</p>"
             if d.get('comments'):
                 html_desc += "<hr><h3 style='color:#3B82F6; margin-bottom:5px;'>💬 网友热评</h3>"
@@ -281,7 +295,7 @@ class DetailDialog(QDialog):
             theme = APP_CONFIG.get('theme', 'light'); bg_c = "#EFF6FF" if theme == 'light' else "#1E3A8A"; text_c = "#1D4ED8" if theme == 'light' else "#BFDBFE"
             self.my_review.setStyleSheet(f"background-color: {bg_c}; color: {text_c}; padding: 10px; border-radius: 6px;")
             self.my_review.setText(f"<b>🙋‍♂️ 我的评价 ({my_status})</b><br>⭐ 评分: {my_rate}<br>💬 吐槽: {my_comment}"); self.my_review.show()
-        self.btn.setEnabled(True)
+        if not self.is_book: self.btn.setEnabled(True)
 
     def save_collection(self):
         s_type = self.status_box.currentData()
@@ -311,21 +325,33 @@ class EpisodeDialog(QDialog):
         if not items: return
         if CustomMessageBox.confirm(self, "确认", f"推送 {len(items)} 个任务？"):
             try:
+                # ✨ 修改：应用自定义的保存路径 kwargs
+                dl_path = APP_CONFIG.get('qbt_dl_path', '')
                 qbt = Client(host=APP_CONFIG['qbt_host'], port=APP_CONFIG['qbt_port'], username=APP_CONFIG['qbt_user'], password=APP_CONFIG['qbt_pass']); qbt.auth_log_in(); count = 0
                 for i in items:
                     u = i.data(Qt.ItemDataRole.UserRole)
-                    if u.startswith('magnet:'): qbt.torrents_add(urls=u)
+                    kwargs = {}
+                    if dl_path: kwargs['save_path'] = dl_path
+                        
+                    if u.startswith('magnet:'): qbt.torrents_add(urls=u, **kwargs)
                     else:
                         r = http_session.get(u, timeout=10)
-                        if r.status_code == 200: qbt.torrents_add(torrent_files={'t.torrent': r.content})
+                        if r.status_code == 200: qbt.torrents_add(torrent_files={'t.torrent': r.content}, **kwargs)
                     count += 1
                 CustomMessageBox.show(self, "成功", f"✅ 推送 {count} 个任务！", "success"); self.accept()
-            except: CustomMessageBox.show(self, "错误", "推送失败，请检查配置", "error")
+            except Exception as e: CustomMessageBox.show(self, "错误", f"推送失败，请检查配置或 qBit 运行状态\n{e}", "error")
 
 class MyCollectionDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent); self.parent = parent; self.workers = [] 
-        layout = setup_frameless_dialog(self, "我的番剧库", 680, 580); h = QHBoxLayout(); h.addWidget(QLabel("<h3 style='margin:0;'>追番库</h3>")); h.addStretch()
+        layout = setup_frameless_dialog(self, "我的收藏库", 680, 580); h = QHBoxLayout(); h.addWidget(QLabel("<h3 style='margin:0;'>收藏库</h3>")); h.addStretch()
+        
+        # ✨ 修改：支持切换 番剧 / 书籍
+        self.subject_combo = QComboBox()
+        self.subject_combo.addItems(["📺 番剧", "📚 书籍"])
+        self.subject_combo.currentIndexChanged.connect(self.load)
+        h.addWidget(self.subject_combo)
+        
         self.type_combo = QComboBox(); self.type_combo.addItems(["想看 (Wish)", "看过 (Collect)", "在看 (Do)", "搁置 (On Hold)", "抛弃 (Dropped)"])
         self.type_combo.setItemData(0, 1); self.type_combo.setItemData(1, 2); self.type_combo.setItemData(2, 3); self.type_combo.setItemData(3, 4); self.type_combo.setItemData(4, 5); self.type_combo.setCurrentIndex(2)
         self.type_combo.currentIndexChanged.connect(self.load); h.addWidget(self.type_combo)
@@ -333,33 +359,47 @@ class MyCollectionDialog(QDialog):
         layout.addWidget(QLabel("💡 提示: 点击标题可查看详情或去下载。")); self.list = QListWidget(); layout.addWidget(self.list); self.load()
         
     def load(self):
-        self.list.clear(); self.list.addItem("⏳ 正在穿越次元壁请求数据..."); status_type = self.type_combo.currentData()
-        self.w = MyCollectionWorker(status_type); self.w.data_fetched.connect(self.render); self.w.start()
+        self.list.clear(); self.list.addItem("⏳ 正在穿越次元壁请求数据...")
+        status_type = self.type_combo.currentData()
+        subj_type = 1 if self.subject_combo.currentIndex() == 1 else 2
+        
+        self.w = MyCollectionWorker(status_type, subj_type); self.w.data_fetched.connect(self.render); self.w.start()
         
     def render(self, colls, err):
         self.list.clear()
         if err: self.list.addItem(f"❌ {err}"); return
         if not colls: self.list.addItem("这个列表空空如也..."); return
+        
         status_type = self.type_combo.currentData()
+        is_book = self.subject_combo.currentIndex() == 1
+        
         for c in colls:
             s = c.get('subject', {}); name = s.get('name_cn') or s.get('name', '未知'); sid = s.get('id'); cur = c.get('ep_status', 0); tot = s.get('eps', 0)
             w = QWidget(); w.setMinimumHeight(65); l = QHBoxLayout(w); l.setContentsMargins(15, 5, 15, 5)
             t = QLabel(f"<b style='font-size:14px; text-decoration: underline; color:#3B82F6;'>{name}</b>"); t.setCursor(Qt.CursorShape.PointingHandCursor)
-            t.mousePressEvent = lambda e, i=sid, n=name: self.down(i, n); p = QLabel(f"进度: {cur} / {tot if tot > 0 else '?'}"); l.addWidget(t); l.addStretch(); l.addWidget(p)
+            t.mousePressEvent = lambda e, i=sid, n=name, b=is_book: self.down(i, n, b)
+            p = QLabel(f"进度: {cur} / {tot if tot > 0 else '?'}"); l.addWidget(t); l.addStretch(); l.addWidget(p)
+            
             if status_type == 3:
-                btn = QPushButton("看完 +1"); btn.setFixedWidth(80); btn.setObjectName("OrangeBtn"); btn.setProperty("current_ep", cur)
-                btn.clicked.connect(lambda ch, i=sid, b=btn, lp=p, total=tot: self.prog(i, b, lp, total)); l.addWidget(btn)
+                btn_text = "读完 +1" if is_book else "看完 +1"
+                btn = QPushButton(btn_text); btn.setFixedWidth(80); btn.setObjectName("OrangeBtn"); btn.setProperty("current_ep", cur)
+                btn.clicked.connect(lambda ch, i=sid, b=btn, lp=p, total=tot, txt=btn_text: self.prog(i, b, lp, total, txt)); l.addWidget(btn)
+                
             item = QListWidgetItem(self.list); item.setSizeHint(QSize(0, 65)); self.list.setItemWidget(item, w)
             
-    def prog(self, sid, btn, lp, tot):
+    def prog(self, sid, btn, lp, tot, txt):
         cur = btn.property("current_ep"); btn.setEnabled(False); btn.setText("更新中...")
-        worker = EpProgressWorker(sid, cur + 1); self.workers.append(worker); worker.update_done.connect(lambda ok, msg, w=worker: self.on_prog_done(ok, msg, btn, lp, cur + 1, tot, w)); worker.start()
+        worker = EpProgressWorker(sid, cur + 1); self.workers.append(worker)
+        worker.update_done.connect(lambda ok, msg, w=worker: self.on_prog_done(ok, msg, btn, lp, cur + 1, tot, w, txt))
+        worker.start()
 
-    def on_prog_done(self, ok, msg, btn, lp, new_ep, tot, worker):
+    def on_prog_done(self, ok, msg, btn, lp, new_ep, tot, worker, txt):
         if worker in self.workers: self.workers.remove(worker)
         worker.deleteLater()
-        if ok: btn.setProperty("current_ep", new_ep); lp.setText(f"进度: {new_ep} / {tot if tot > 0 else '?'}"); btn.setEnabled(True); btn.setText("看完 +1")
-        else: btn.setEnabled(True); btn.setText("看完 +1"); CustomMessageBox.show(self, "更新失败", msg, "error")
+        if ok: 
+            btn.setProperty("current_ep", new_ep); lp.setText(f"进度: {new_ep} / {tot if tot > 0 else '?'}"); btn.setEnabled(True); btn.setText(txt)
+        else: 
+            btn.setEnabled(True); btn.setText(txt); CustomMessageBox.show(self, "更新失败", msg, "error")
             
-    def down(self, sid, name):
-        if DetailDialog(sid, name, self).exec() == QDialog.DialogCode.Accepted: self.parent.show_config(name, sid)
+    def down(self, sid, name, is_book):
+        if DetailDialog(sid, name, is_book, self).exec() == QDialog.DialogCode.Accepted: self.parent.show_config(name, sid)

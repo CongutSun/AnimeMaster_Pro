@@ -8,14 +8,14 @@ def get_resource_path(relative_path):
 USER_HOME = os.path.expanduser("~")
 CONFIG_FILE = os.path.join(USER_HOME, ".bangumi_helper_config.json")
 
-# ✨ 新增：定义本地硬盘缓存目录，用于存放图片和每日数据
 CACHE_DIR = os.path.join(USER_HOME, ".bangumi_helper_cache")
 IMG_CACHE_DIR = os.path.join(CACHE_DIR, "images")
 os.makedirs(IMG_CACHE_DIR, exist_ok=True)
 
+# ✨ 修改：新增 qbt_dl_path 字段
 DEFAULT_CONFIG = {
     "qbt_host": "localhost", "qbt_port": 8080, "qbt_user": "admin", "qbt_pass": "adminadmin",
-    "qbt_path": "", "monika_cookie": "", "bg_image": "", "bg_align": 50, "bgm_username": "", "bgm_token": "",
+    "qbt_path": "", "qbt_dl_path": "", "monika_cookie": "", "bg_image": "", "bg_align": 50, "bgm_username": "", "bgm_token": "",
     "theme": "light", "close_action": 0, "custom_rss": []
 }
 
