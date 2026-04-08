@@ -166,7 +166,6 @@ class SettingsDialog(QDialog):
         qbt_btn = QPushButton("浏览..."); qbt_btn.setObjectName("GrayBtn"); qbt_btn.clicked.connect(self.choose_qbt)
         qbt_layout = QHBoxLayout(); qbt_layout.addWidget(self.qbt_path_in); qbt_layout.addWidget(qbt_btn)
 
-        # ✨ 修改：加入默认下载路径
         self.qbt_dl_path_in = QLineEdit(APP_CONFIG.get('qbt_dl_path', ''))
         qbt_dl_btn = QPushButton("浏览..."); qbt_dl_btn.setObjectName("GrayBtn"); qbt_dl_btn.clicked.connect(self.choose_qbt_dl)
         qbt_dl_layout = QHBoxLayout(); qbt_dl_layout.addWidget(self.qbt_dl_path_in); qbt_dl_layout.addWidget(qbt_dl_btn)
@@ -242,25 +241,87 @@ class SettingsDialog(QDialog):
             self.accept()
         except: pass
 
+class LongCommentDialog(QDialog):
+    def __init__(self, initial_text="", parent=None):
+        super().__init__(parent)
+        layout = setup_frameless_dialog(self, "沉浸式长评编辑", 600, 450)
+        
+        self.text_edit = QTextEdit()
+        self.text_edit.setPlainText(initial_text)
+        self.text_edit.setPlaceholderText("在这里挥洒你的长篇大论吧...\n(支持自动换行，写完后别忘了点击同步云端哦)")
+        self.text_edit.setStyleSheet("font-size: 14px; line-height: 1.6; padding: 5px;")
+        layout.addWidget(self.text_edit)
+
+        btn_box = QHBoxLayout()
+        save_btn = QPushButton("确认保存")
+        save_btn.setObjectName("BlueBtn")
+        save_btn.setFixedSize(100, 35)
+        save_btn.clicked.connect(self.accept)
+
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setObjectName("GrayBtn")
+        cancel_btn.setFixedSize(80, 35)
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_box.addStretch()
+        btn_box.addWidget(save_btn)
+        btn_box.addWidget(cancel_btn)
+        layout.addLayout(btn_box)
+
+    def get_text(self):
+        return self.text_edit.toPlainText().strip()
+
+
 class DetailDialog(QDialog):
-    # ✨ 修改：加入书籍判断，禁用下载功能
     def __init__(self, sid, name, is_book=False, parent=None):
-        super().__init__(parent); self.sid = sid; self.is_book = is_book; layout = setup_frameless_dialog(self, "详情与评价", 580, 720)
+        super().__init__(parent); self.sid = sid; self.is_book = is_book; layout = setup_frameless_dialog(self, "详情与评价", 620, 720)
+        
+        self.current_ep = 0
+        self.current_vol = 0
+        
         layout.addWidget(QLabel(f"<h2 style='text-align: center; margin-bottom: 0px;'>{name}</h2>"))
         self.info = QLabel("跨越次元壁请求中..."); self.info.setObjectName("InfoPanel"); self.info.setWordWrap(True); layout.addWidget(self.info)
         self.my_review = QLabel(); self.my_review.setWordWrap(True); self.my_review.hide(); layout.addWidget(self.my_review)
-        self.ctrl_frame = QFrame(); self.ctrl_frame.setObjectName("MainFrame"); self.ctrl_frame.setStyleSheet("QFrame#MainFrame { padding: 5px; margin: 5px 0px; }")
+        self.ctrl_frame = QFrame(); self.ctrl_frame.setObjectName("MainFrame"); self.ctrl_frame.setStyleSheet("QFrame#MainFrame { padding: 10px; margin: 5px 0px; }")
         ctrl_lay = QGridLayout(self.ctrl_frame)
+        
         ctrl_lay.addWidget(QLabel("<b>🚀 更新状态:</b>"), 0, 0)
         self.status_box = QComboBox(); self.status_box.addItems(["未收藏", "想看 (Wish)", "看过 (Collect)", "在看 (Do)", "搁置 (On Hold)", "抛弃 (Dropped)"])
         for i, v in enumerate([0, 1, 2, 3, 4, 5]): self.status_box.setItemData(i, v)
         ctrl_lay.addWidget(self.status_box, 0, 1)
+        
         ctrl_lay.addWidget(QLabel("<b>⭐ 打分:</b>"), 0, 2)
         self.rate_box = QComboBox(); self.rate_box.addItem("暂不打分", 0)
         for i in range(10, 0, -1): self.rate_box.addItem(f"{i}分 " + "★"*(i//2) + ("☆" if i%2 else ""), i)
         ctrl_lay.addWidget(self.rate_box, 0, 3)
-        self.comment_in = QLineEdit(); self.comment_in.setPlaceholderText("写句简短的吐槽或短评吧..."); ctrl_lay.addWidget(self.comment_in, 1, 0, 1, 3)
-        self.save_btn = QPushButton("💾 云端同步"); self.save_btn.setObjectName("OrangeBtn"); self.save_btn.clicked.connect(self.save_collection); ctrl_lay.addWidget(self.save_btn, 1, 3)
+        
+        self.comment_in = QTextEdit()
+        self.comment_in.setPlaceholderText("写句简短的吐槽，或者点击右侧全屏长评...")
+        self.comment_in.setFixedHeight(65)
+        self.comment_in.setStyleSheet("font-size: 13px; line-height: 1.4;")
+        
+        self.expand_btn = QPushButton("⛶")
+        self.expand_btn.setFixedSize(30, 65)
+        self.expand_btn.setObjectName("GrayBtn")
+        self.expand_btn.setToolTip("进入全屏长评模式")
+        self.expand_btn.setStyleSheet("font-size: 16px; padding: 0px;")
+        self.expand_btn.clicked.connect(self.open_long_comment)
+
+        comment_wrap = QWidget()
+        c_lay = QHBoxLayout(comment_wrap)
+        c_lay.setContentsMargins(0, 0, 0, 0)
+        c_lay.setSpacing(5)
+        c_lay.addWidget(self.comment_in)
+        c_lay.addWidget(self.expand_btn)
+
+        ctrl_lay.addWidget(comment_wrap, 1, 0, 1, 3)
+
+        self.save_btn = QPushButton("💾 云端同步")
+        self.save_btn.setObjectName("OrangeBtn")
+        self.save_btn.setFixedHeight(65) # 与左侧文本框高度对齐
+        self.save_btn.clicked.connect(self.save_collection)
+        ctrl_lay.addWidget(self.save_btn, 1, 3)
+        
         layout.addWidget(self.ctrl_frame)
         self.desc = QTextEdit(); self.desc.setReadOnly(True)
         
@@ -271,6 +332,12 @@ class DetailDialog(QDialog):
         
         layout.addWidget(self.desc); layout.addWidget(self.btn)
         self.w = DetailWorker(sid); self.w.detail_fetched.connect(self.upd); self.w.start()
+
+    def open_long_comment(self):
+        # 呼出沉浸式长评编辑窗口
+        dlg = LongCommentDialog(self.comment_in.toPlainText(), self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.comment_in.setPlainText(dlg.get_text())
 
     def upd(self, d):
         if d['info']:
@@ -289,19 +356,36 @@ class DetailDialog(QDialog):
             if idx_s >= 0: self.status_box.setCurrentIndex(idx_s)
             idx_r = self.rate_box.findData(uc.get('rate', 0))
             if idx_r >= 0: self.rate_box.setCurrentIndex(idx_r)
-            self.comment_in.setText(uc.get('comment', '') or ''); self.save_btn.setText("🔄 更新同步")
+            
+            # ✨ 使用 setPlainText 回显之前的评价
+            self.comment_in.setPlainText(uc.get('comment', '') or '')
+            self.save_btn.setText("🔄 更新同步")
+            
             s_map = {1: "想看", 2: "看过", 3: "在看", 4: "搁置", 5: "抛弃"}; my_status = s_map.get(uc.get('type', 0), "已收藏")
             my_rate = f"{uc.get('rate')} 分" if uc.get('rate') else "未打分"; my_comment = uc.get('comment', '') or "暂无吐槽"
             theme = APP_CONFIG.get('theme', 'light'); bg_c = "#EFF6FF" if theme == 'light' else "#1E3A8A"; text_c = "#1D4ED8" if theme == 'light' else "#BFDBFE"
             self.my_review.setStyleSheet(f"background-color: {bg_c}; color: {text_c}; padding: 10px; border-radius: 6px;")
             self.my_review.setText(f"<b>🙋‍♂️ 我的评价 ({my_status})</b><br>⭐ 评分: {my_rate}<br>💬 吐槽: {my_comment}"); self.my_review.show()
+            
+            self.current_ep = uc.get('ep_status', 0)
+            self.current_vol = uc.get('vol_status', 0)
+            
         if not self.is_book: self.btn.setEnabled(True)
 
     def save_collection(self):
         s_type = self.status_box.currentData()
         if s_type == 0: CustomMessageBox.show(self, "提示", "请选择收藏状态！", "warning"); return
         self.save_btn.setText("⏳ 同步中..."); self.save_btn.setEnabled(False)
-        self.upd_w = CollectionUpdateWorker(self.sid, s_type, self.rate_box.currentData(), self.comment_in.text().strip()); self.upd_w.update_done.connect(self.on_save_done); self.upd_w.start()
+        
+        ep = getattr(self, 'current_ep', 0)
+        vol = getattr(self, 'current_vol', None) if self.is_book else None
+        stype = 1 if self.is_book else 2 
+        
+        # ✨ 取值换为 toPlainText
+        comment_text = self.comment_in.toPlainText().strip()
+        
+        self.upd_w = CollectionUpdateWorker(self.sid, s_type, self.rate_box.currentData(), comment_text, ep_status=ep, vol_status=vol, subject_type=stype) 
+        self.upd_w.update_done.connect(self.on_save_done); self.upd_w.start()
 
     def on_save_done(self, success, msg):
         self.save_btn.setText("💾 云端同步"); self.save_btn.setEnabled(True)
@@ -325,7 +409,6 @@ class EpisodeDialog(QDialog):
         if not items: return
         if CustomMessageBox.confirm(self, "确认", f"推送 {len(items)} 个任务？"):
             try:
-                # ✨ 修改：应用自定义的保存路径 kwargs
                 dl_path = APP_CONFIG.get('qbt_dl_path', '')
                 qbt = Client(host=APP_CONFIG['qbt_host'], port=APP_CONFIG['qbt_port'], username=APP_CONFIG['qbt_user'], password=APP_CONFIG['qbt_pass']); qbt.auth_log_in(); count = 0
                 for i in items:
@@ -341,12 +424,97 @@ class EpisodeDialog(QDialog):
                 CustomMessageBox.show(self, "成功", f"✅ 推送 {count} 个任务！", "success"); self.accept()
             except Exception as e: CustomMessageBox.show(self, "错误", f"推送失败，请检查配置或 qBit 运行状态\n{e}", "error")
 
+class QuickUpdateDialog(QDialog):
+    def __init__(self, sid, name, subject_type, initial_ep=0, initial_vol=0, parent=None):
+        super().__init__(parent)
+        self.sid = sid
+        self.subject_type = subject_type
+        self.current_ep = initial_ep
+        self.current_vol = initial_vol
+        self.workers = []
+        
+        layout = setup_frameless_dialog(self, "快捷更新进度", 350, 250)
+        
+        name_label = QLabel(name)
+        name_label.setStyleSheet("color: #888; font-size: 12px;")
+        layout.addWidget(name_label)
+        layout.addSpacing(15)
+
+        if self.subject_type == 1: 
+            layout.addWidget(self._build_adjuster("当前卷 (Vol)", "vol"))
+            layout.addWidget(self._build_adjuster("当前话 (Chap)", "ep"))
+        else:  
+            layout.addWidget(self._build_adjuster("当前集数 (Ep)", "ep"))
+
+        layout.addSpacing(20)
+        
+        self.save_btn = QPushButton("💾 保存并同步云端")
+        self.save_btn.setFixedHeight(38)
+        self.save_btn.setObjectName("BlueBtn") 
+        self.save_btn.clicked.connect(self.sync_progress)
+        layout.addWidget(self.save_btn)
+
+    def _build_adjuster(self, title, target_attr):
+        container = QWidget()
+        h_layout = QHBoxLayout(container)
+        h_layout.setContentsMargins(0, 0, 0, 0)
+        
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        
+        minus_btn = QPushButton("-")
+        minus_btn.setFixedSize(30, 30)
+        minus_btn.setObjectName("GrayBtn")
+        minus_btn.setStyleSheet("padding: 0px; font-size: 20px; font-weight: bold; padding-bottom: 2px;")
+        
+        val_label = QLabel(str(getattr(self, f"current_{target_attr}")))
+        val_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        val_label.setFixedWidth(40)
+        val_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        
+        plus_btn = QPushButton("+")
+        plus_btn.setFixedSize(30, 30)
+        plus_btn.setObjectName("BlueBtn")
+        plus_btn.setStyleSheet("padding: 0px; font-size: 20px; font-weight: bold; padding-bottom: 2px;")
+
+        def update_val(delta):
+            current = getattr(self, f"current_{target_attr}")
+            new_val = max(0, current + delta)
+            setattr(self, f"current_{target_attr}", new_val)
+            val_label.setText(str(new_val))
+
+        minus_btn.clicked.connect(lambda: update_val(-1))
+        plus_btn.clicked.connect(lambda: update_val(1))
+
+        h_layout.addWidget(title_label)
+        h_layout.addStretch()
+        h_layout.addWidget(minus_btn)
+        h_layout.addWidget(val_label)
+        h_layout.addWidget(plus_btn)
+        return container
+
+    def sync_progress(self):
+        self.save_btn.setText("同步中...")
+        self.save_btn.setEnabled(False)
+        
+        worker = EpProgressWorker(self.sid, ep_status=self.current_ep, vol_status=self.current_vol, subject_type=self.subject_type)
+        self.workers.append(worker)
+        worker.update_done.connect(self.on_sync_done)
+        worker.start()
+
+    def on_sync_done(self, success, msg):
+        if success:
+            self.accept()
+        else:
+            self.save_btn.setText("💾 重新同步")
+            self.save_btn.setEnabled(True)
+            CustomMessageBox.show(self, "同步失败", msg, "error")
+
 class MyCollectionDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent); self.parent = parent; self.workers = [] 
         layout = setup_frameless_dialog(self, "我的收藏库", 680, 580); h = QHBoxLayout(); h.addWidget(QLabel("<h3 style='margin:0;'>收藏库</h3>")); h.addStretch()
         
-        # ✨ 修改：支持切换 番剧 / 书籍
         self.subject_combo = QComboBox()
         self.subject_combo.addItems(["📺 番剧", "📚 书籍"])
         self.subject_combo.currentIndexChanged.connect(self.load)
@@ -371,35 +539,67 @@ class MyCollectionDialog(QDialog):
         if not colls: self.list.addItem("这个列表空空如也..."); return
         
         status_type = self.type_combo.currentData()
-        is_book = self.subject_combo.currentIndex() == 1
+        subj_type = 1 if self.subject_combo.currentIndex() == 1 else 2
+        is_book = subj_type == 1
         
         for c in colls:
-            s = c.get('subject', {}); name = s.get('name_cn') or s.get('name', '未知'); sid = s.get('id'); cur = c.get('ep_status', 0); tot = s.get('eps', 0)
+            s = c.get('subject', {}); name = s.get('name_cn') or s.get('name', '未知'); sid = s.get('id'); 
+            cur_ep = c.get('ep_status', 0); cur_vol = c.get('vol_status', 0); tot = s.get('eps', 0)
+            
             w = QWidget(); w.setMinimumHeight(65); l = QHBoxLayout(w); l.setContentsMargins(15, 5, 15, 5)
             t = QLabel(f"<b style='font-size:14px; text-decoration: underline; color:#3B82F6;'>{name}</b>"); t.setCursor(Qt.CursorShape.PointingHandCursor)
             t.mousePressEvent = lambda e, i=sid, n=name, b=is_book: self.down(i, n, b)
-            p = QLabel(f"进度: {cur} / {tot if tot > 0 else '?'}"); l.addWidget(t); l.addStretch(); l.addWidget(p)
+            
+            if is_book:
+                p = QLabel(f"进度: {cur_vol} 卷 / {cur_ep} 话")
+            else:
+                p = QLabel(f"进度: {cur_ep} / {tot if tot > 0 else '?'} 集")
+                
+            l.addWidget(t); l.addStretch(); l.addWidget(p)
             
             if status_type == 3:
-                btn_text = "读完 +1" if is_book else "看完 +1"
-                btn = QPushButton(btn_text); btn.setFixedWidth(80); btn.setObjectName("OrangeBtn"); btn.setProperty("current_ep", cur)
-                btn.clicked.connect(lambda ch, i=sid, b=btn, lp=p, total=tot, txt=btn_text: self.prog(i, b, lp, total, txt)); l.addWidget(btn)
+                if is_book:
+                    btn = QPushButton("快捷更新")
+                    btn.setFixedWidth(80)
+                    btn.setObjectName("OrangeBtn")
+                    btn.clicked.connect(lambda ch, i=sid, n=name, st=subj_type, ep=cur_ep, vol=cur_vol: self.show_quick_update(i, n, st, ep, vol))
+                    l.addWidget(btn)
+                else:
+                    btn = QPushButton("看完 +1")
+                    btn.setFixedWidth(80)
+                    btn.setObjectName("BlueBtn")
+                    btn.setProperty("current_ep", cur_ep)
+                    btn.clicked.connect(lambda ch, i=sid, b=btn, lp=p, total=tot: self.prog(i, b, lp, total))
+                    l.addWidget(btn)
                 
             item = QListWidgetItem(self.list); item.setSizeHint(QSize(0, 65)); self.list.setItemWidget(item, w)
-            
-    def prog(self, sid, btn, lp, tot, txt):
-        cur = btn.property("current_ep"); btn.setEnabled(False); btn.setText("更新中...")
-        worker = EpProgressWorker(sid, cur + 1); self.workers.append(worker)
-        worker.update_done.connect(lambda ok, msg, w=worker: self.on_prog_done(ok, msg, btn, lp, cur + 1, tot, w, txt))
+
+    def prog(self, sid, btn, lp, tot):
+        cur = btn.property("current_ep")
+        btn.setEnabled(False)
+        btn.setText("更新中...")
+        worker = EpProgressWorker(sid, ep_status=cur + 1, vol_status=None, subject_type=2)
+        self.workers.append(worker)
+        worker.update_done.connect(lambda ok, msg, w=worker: self.on_prog_done(ok, msg, btn, lp, cur + 1, tot, w))
         worker.start()
 
-    def on_prog_done(self, ok, msg, btn, lp, new_ep, tot, worker, txt):
+    def on_prog_done(self, ok, msg, btn, lp, new_ep, tot, worker):
         if worker in self.workers: self.workers.remove(worker)
         worker.deleteLater()
         if ok: 
-            btn.setProperty("current_ep", new_ep); lp.setText(f"进度: {new_ep} / {tot if tot > 0 else '?'}"); btn.setEnabled(True); btn.setText(txt)
+            btn.setProperty("current_ep", new_ep)
+            lp.setText(f"进度: {new_ep} / {tot if tot > 0 else '?'} 集")
+            btn.setEnabled(True)
+            btn.setText("看完 +1")
         else: 
-            btn.setEnabled(True); btn.setText(txt); CustomMessageBox.show(self, "更新失败", msg, "error")
+            btn.setEnabled(True)
+            btn.setText("看完 +1")
+            CustomMessageBox.show(self, "更新失败", msg, "error")
+
+    def show_quick_update(self, sid, name, subject_type, current_ep, current_vol):
+        dialog = QuickUpdateDialog(sid, name, subject_type, current_ep, current_vol, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.load()
             
     def down(self, sid, name, is_book):
         if DetailDialog(sid, name, is_book, self).exec() == QDialog.DialogCode.Accepted: self.parent.show_config(name, sid)
