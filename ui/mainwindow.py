@@ -372,7 +372,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(QLabel("<b>3. 选择搜刮源</b>："))
         site_grid = QGridLayout()
         self.site_chips = []
-        all_sites = [s_name for s_name, cfg in SUPPORTED_SITES.items() if cfg["enabled"]] + [s['name'] for s in APP_CONFIG.get('custom_rss', [])]
+        site_names = [s_name for s_name, cfg in SUPPORTED_SITES.items() if cfg["enabled"]]
+        site_names.extend(s.get('name', '') for s in APP_CONFIG.get('custom_rss', []))
+        all_sites = list(dict.fromkeys(s for s in site_names if s))
         
         for i, s_name in enumerate(all_sites):
             btn = QPushButton()

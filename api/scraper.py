@@ -21,7 +21,7 @@ class SearchWorker(QThread):
     def __init__(self, name, sites, qual, excl, incl):
         super().__init__()
         self.name = name
-        self.sites = sites
+        self.sites = list(dict.fromkeys(s for s in sites if s))
         self.qual = qual
         self.excl = [w.strip().lower() for w in excl.replace('，', ',').split(',') if w.strip()]
         self.incl = [w.strip().lower() for w in incl.replace('，', ',').split(',') if w.strip()]
