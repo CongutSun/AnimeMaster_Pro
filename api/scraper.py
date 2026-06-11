@@ -79,6 +79,17 @@ class SearchWorker(QThread):
             if not any(x in t for x in self.incl): return False
         return True
 
+    def _get_rss_download_link(self, entry):
+        for enclosure in entry.get('enclosures', []):
+            href = enclosure.get('href') or enclosure.get('url')
+            if href:
+                return href
+        for link in entry.get('links', []):
+            href = link.get('href')
+            if href and link.get('type') == 'application/x-bittorrent':
+                return href
+        return entry.get('link', '')
+
     def _search_rss(self, site_name, url_template):
         url = url_template.replace("{keyword}", urllib.parse.quote(self.name))
         try:
@@ -96,9 +107,7 @@ class SearchWorker(QThread):
                 full_text += f" {desc_text}"
             
             if self.valid(full_text):
-                dl_link = e.link 
-                if hasattr(e, 'enclosures') and len(e.enclosures) > 0:
-                    dl_link = e.enclosures[0].href
+                dl_link = self._get_rss_download_link(e)
                 if "passkey=" not in dl_link:
                     passkey_match = re.search(r'passkey=([a-zA-Z0-9]+)', url_template)
                     if passkey_match:
@@ -115,7 +124,7 @@ class SearchWorker(QThread):
             r = http_session.get(f"https://mikanani.me/RSS/Search?searchstr={urllib.parse.quote(self.name)}", timeout=10)
             if r.status_code != 200: raise Exception(f"Mikan拒绝访问，状态码 {r.status_code}")
             f = feedparser.parse(r.text)
-            return [{"title": f"[Mikan] {e.title}", "link": e.link} for e in f.entries if self.valid(e.title)]
+            return [{"title": f"[Mikan] {e.title}", "link": self._get_rss_download_link(e)} for e in f.entries if self.valid(e.title)]
         except Exception as e: raise Exception(f"Mikan解析失败 ({e})")
         
     def _search_monika(self):

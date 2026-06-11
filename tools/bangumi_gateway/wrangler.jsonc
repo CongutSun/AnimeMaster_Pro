@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "animemaster-pro-bangumi-gateway",
+  "main": "worker.js",
+  "compatibility_date": "2026-06-11",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

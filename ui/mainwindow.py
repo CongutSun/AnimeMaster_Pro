@@ -467,8 +467,8 @@ class AliasFetcherThread(QThread):
             return
             
         try:
-            from api.bangumi import bgm_session
-            r = bgm_session.get(f"https://api.bgm.tv/v0/subjects/{self.sid}", timeout=5)
+            from api.bangumi import ApiConfig, bgm_session
+            r = bgm_session.get(ApiConfig.api_url(f"/v0/subjects/{self.sid}"), timeout=5)
             if r.status_code == 200:
                 data = r.json()
                 aliases = []

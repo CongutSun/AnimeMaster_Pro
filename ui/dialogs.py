@@ -172,13 +172,16 @@ class SettingsDialog(QDialog):
         
         self.cookie_in = QLineEdit(APP_CONFIG.get('monika_cookie', ''))
         self.cookie_in.setPlaceholderText("填入 MonikaDesign 的 Cookie")
+        self.bgm_gateway_in = QLineEdit(APP_CONFIG.get('bangumi_gateway', 'https://auth.congutsun.com'))
+        self.bgm_gateway_in.setPlaceholderText("留空则直连 Bangumi 官方域名")
         self.bgm_user_in = QLineEdit(APP_CONFIG.get('bgm_username', ''))
         self.bgm_token_in = QLineEdit(APP_CONFIG.get('bgm_token', ''))
         self.bgm_token_in.setEchoMode(QLineEdit.EchoMode.Password)
         
         form_right_1.addRow("qBit WebUI:", self.host_in); form_right_1.addRow("qBit 端口:", self.port_in)
         form_right_1.addRow("qBit .exe:", qbt_layout); form_right_1.addRow("默认下载路径:", qbt_dl_layout)
-        form_right_1.addRow("Monika Cookie:", self.cookie_in); form_right_1.addRow("Bgm 账号:", self.bgm_user_in); form_right_1.addRow("Bgm Token:", self.bgm_token_in)
+        form_right_1.addRow("Monika Cookie:", self.cookie_in); form_right_1.addRow("Bangumi 网关:", self.bgm_gateway_in)
+        form_right_1.addRow("Bgm 账号:", self.bgm_user_in); form_right_1.addRow("Bgm Token:", self.bgm_token_in)
         right_lay.addLayout(form_right_1)
         
         right_lay.addSpacing(15); right_lay.addWidget(QLabel("<b>📡 自定义资源站 (RSS源)</b>"))
@@ -232,7 +235,8 @@ class SettingsDialog(QDialog):
             APP_CONFIG['close_action'] = self.close_box.currentData(); APP_CONFIG['theme'] = self.theme_box.currentData(); APP_CONFIG['bg_image'] = self.bg_path_in.text().strip()
             APP_CONFIG['bg_align'] = self.current_align; APP_CONFIG['qbt_host'] = self.host_in.text().strip(); APP_CONFIG['qbt_port'] = int(self.port_in.text().strip() or 8080)
             APP_CONFIG['qbt_path'] = self.qbt_path_in.text().strip(); APP_CONFIG['qbt_dl_path'] = self.qbt_dl_path_in.text().strip()
-            APP_CONFIG['monika_cookie'] = self.cookie_in.text().strip(); APP_CONFIG['bgm_username'] = self.bgm_user_in.text().strip()
+            APP_CONFIG['monika_cookie'] = self.cookie_in.text().strip(); APP_CONFIG['bangumi_gateway'] = self.bgm_gateway_in.text().strip().rstrip('/')
+            APP_CONFIG['bgm_username'] = self.bgm_user_in.text().strip()
             APP_CONFIG['bgm_token'] = self.bgm_token_in.text().strip(); APP_CONFIG['custom_rss'] = self.custom_rss_data
             save_config(APP_CONFIG); update_session_headers(); apply_global_theme()
             if self.parent() and hasattr(self.parent(), 'main_frame'):

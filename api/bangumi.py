@@ -12,6 +12,52 @@ class ApiConfig:
     CHII_BASE = 'https://chii.in'
     USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
+    @classmethod
+    def gateway_base(cls):
+        return APP_CONFIG.get('bangumi_gateway', '').strip().rstrip('/')
+
+    @classmethod
+    def _build_url(cls, route, origin, path, params=None):
+        raw_path, sep, raw_query = path.partition('?')
+        if not raw_path.startswith('/'):
+            raw_path = f"/{raw_path}"
+
+        gateway = cls.gateway_base()
+        base = f"{gateway}/bangumi/{route}" if gateway else origin
+        query_parts = []
+        if sep and raw_query:
+            query_parts.append(raw_query)
+        if params:
+            query_parts.append(urllib.parse.urlencode(params, doseq=True))
+
+        url = f"{base}{raw_path}"
+        if query_parts:
+            url = f"{url}?{'&'.join(query_parts)}"
+        return url
+
+    @classmethod
+    def api_url(cls, path, params=None):
+        return cls._build_url('api', cls.API_BASE, path, params)
+
+    @classmethod
+    def web_url(cls, path, params=None):
+        return cls._build_url('web', cls.WEB_BASE, path, params)
+
+    @classmethod
+    def chii_url(cls, path, params=None):
+        return cls._build_url('chii', cls.CHII_BASE, path, params)
+
+    @classmethod
+    def image_url(cls, url):
+        if not url:
+            return url
+        if url.startswith('//'):
+            url = f"https:{url}"
+        gateway = cls.gateway_base()
+        if not gateway:
+            return url
+        return f"{gateway}/bangumi/image?url={urllib.parse.quote(url, safe='')}"
+
 bgm_session = requests.Session()
 bgm_session.headers.update({'User-Agent': ApiConfig.USER_AGENT})
 IMAGE_CACHE = {}
@@ -19,7 +65,8 @@ IMAGE_CACHE = {}
 class BangumiAPI:
     def search(self, keyword, type_=2):
         try:
-            res = bgm_session.get(f"{ApiConfig.API_BASE}/search/subject/{urllib.parse.quote(keyword)}?type={type_}", timeout=10)
+            path = f"/search/subject/{urllib.parse.quote(keyword, safe='')}"
+            res = bgm_session.get(ApiConfig.api_url(path, {'type': type_}), timeout=10)
             if res.status_code == 200:
                 return res.json().get('list', [])
             return None
@@ -29,7 +76,7 @@ class BangumiAPI:
         
     def get_calendar(self):
         try:
-            res = bgm_session.get(f"{ApiConfig.API_BASE}/calendar", timeout=8)
+            res = bgm_session.get(ApiConfig.api_url('/calendar'), timeout=8)
             if res.status_code == 200:
                 return res.json()
             return []
@@ -41,12 +88,14 @@ class BangumiAuthAPI:
     def __init__(self):
         self.username = APP_CONFIG.get('bgm_username', '')
         self.token = APP_CONFIG.get('bgm_token', '')
-        self.headers = {'Authorization': f'Bearer {self.token}' if self.token else ''}
+        self.headers = {'Authorization': f'Bearer {self.token}'} if self.token else {}
         
     def get_my_collection(self, status_type=3, subject_type=2):
         if not self.username or not self.token: return None, "未配置账号"
         try:
-            res = bgm_session.get(f"{ApiConfig.API_BASE}/v0/users/{self.username}/collections?subject_type={subject_type}&type={status_type}&limit=100", headers=self.headers, timeout=10)
+            path = f"/v0/users/{urllib.parse.quote(self.username, safe='')}/collections"
+            params = {'subject_type': subject_type, 'type': status_type, 'limit': 100}
+            res = bgm_session.get(ApiConfig.api_url(path, params), headers=self.headers, timeout=10)
             if res.status_code == 200:
                 return res.json().get('data', []), ""
             return None, f"同步失败(状态码:{res.status_code})"
@@ -60,7 +109,7 @@ class BangumiAuthAPI:
         try:
             if subject_type == 2:
                 # 📺 番剧 (Anime) 必须调用专门的 watched_eps 老接口
-                url = f"{ApiConfig.API_BASE}/subject/{sid}/update/watched_eps"
+                url = ApiConfig.api_url(f"/subject/{sid}/update/watched_eps")
                 res = bgm_session.post(url, headers=self.headers, data={'watched_eps': str(ep_status)}, timeout=5)
                 if res.status_code in [200, 202, 204]: 
                     return True, "番剧进度已成功同步！"
@@ -68,7 +117,7 @@ class BangumiAuthAPI:
                     return False, f"API 拒绝更新番剧进度 (状态码: {res.status_code})"
             else:
                 # 📚 书籍 (Book) 使用 v0 集合修改接口，支持卷话双轨
-                url = f"{ApiConfig.API_BASE}/v0/users/-/collections/{sid}"
+                url = ApiConfig.api_url(f"/v0/users/-/collections/{sid}")
                 payload = {}
                 if ep_status is not None: payload['ep_status'] = int(ep_status)
                 if vol_status is not None: payload['vol_status'] = int(vol_status)
@@ -88,7 +137,7 @@ class BangumiAuthAPI:
     def update_collection_status(self, subject_id, status_type, ep_status=0, vol_status=None, rating=0, comment="", subject_type=2):
         if not self.token: return False, "未配置账号 Token"
         try:
-            url = f"{ApiConfig.API_BASE}/v0/users/-/collections/{subject_id}"
+            url = ApiConfig.api_url(f"/v0/users/-/collections/{subject_id}")
             payload = {
                 "type": status_type, 
             }
@@ -108,7 +157,7 @@ class BangumiAuthAPI:
                 
             # 对于番剧，状态保存完后，必须额外调用专属接口更新其集数
             if subject_type == 2 and ep_status > 0:
-                prog_url = f"{ApiConfig.API_BASE}/subject/{subject_id}/update/watched_eps"
+                prog_url = ApiConfig.api_url(f"/subject/{subject_id}/update/watched_eps")
                 bgm_session.post(prog_url, headers=self.headers, data={'watched_eps': str(ep_status)}, timeout=5)
                 
             return True, "状态已成功同步至云端！"
@@ -178,8 +227,8 @@ class YearTopWorker(QThread):
             except: pass
             
         if not results:
-            results = self._extract(f"{ApiConfig.WEB_BASE}/anime/browser/airtime/{year}?sort=rank")
-            if not results: results = self._extract(f"{ApiConfig.WEB_BASE}/anime/browser?sort=rank")
+            results = self._extract(ApiConfig.web_url(f"/anime/browser/airtime/{year}", {'sort': 'rank'}))
+            if not results: results = self._extract(ApiConfig.web_url("/anime/browser", {'sort': 'rank'}))
             if results:
                 try:
                     with open(cache_file, 'w', encoding='utf-8') as f: json.dump(results, f)
@@ -206,10 +255,10 @@ class DetailWorker(QThread):
     def run(self):
         res = {'info': None, 'episodes': {'total': 0, 'aired': 0}, 'user_col': None, 'comments': []}
         try:
-            r1 = bgm_session.get(f"{ApiConfig.API_BASE}/v0/subjects/{self.sid}", timeout=8)
+            r1 = bgm_session.get(ApiConfig.api_url(f"/v0/subjects/{self.sid}"), timeout=8)
             if r1.status_code == 200: res['info'] = r1.json()
             
-            r2 = bgm_session.get(f"{ApiConfig.API_BASE}/v0/episodes?subject_id={self.sid}", timeout=5)
+            r2 = bgm_session.get(ApiConfig.api_url("/v0/episodes", {'subject_id': self.sid}), timeout=5)
             if r2.status_code == 200: 
                 d = r2.json()
                 res['episodes']['total'] = d.get('total', 0)
@@ -217,10 +266,11 @@ class DetailWorker(QThread):
                 
             auth_api = BangumiAuthAPI()
             if auth_api.token and auth_api.username:
-                r3 = bgm_session.get(f"{ApiConfig.API_BASE}/v0/users/{auth_api.username}/collections/{self.sid}", headers=auth_api.headers, timeout=5)
+                user_path = f"/v0/users/{urllib.parse.quote(auth_api.username, safe='')}/collections/{self.sid}"
+                r3 = bgm_session.get(ApiConfig.api_url(user_path), headers=auth_api.headers, timeout=5)
                 if r3.status_code == 200: res['user_col'] = r3.json()
                 
-            r4 = bgm_session.get(f"{ApiConfig.CHII_BASE}/subject/{self.sid}", timeout=5)
+            r4 = bgm_session.get(ApiConfig.chii_url(f"/subject/{self.sid}"), timeout=5)
             r4.encoding = 'utf-8'
             if r4.status_code == 200:
                 soup = BeautifulSoup(r4.text, 'html.parser')
@@ -317,7 +367,8 @@ class GlobalImageFetcher(QThread):
                 return
 
         try:
-            r = bgm_session.get(url, timeout=5)
+            request_url = ApiConfig.image_url(url)
+            r = bgm_session.get(request_url, timeout=5)
             if r.status_code == 200:
                 img = QImage()
                 img.loadFromData(r.content)

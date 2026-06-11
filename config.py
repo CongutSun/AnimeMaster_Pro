@@ -16,6 +16,7 @@ os.makedirs(IMG_CACHE_DIR, exist_ok=True)
 DEFAULT_CONFIG = {
     "qbt_host": "localhost", "qbt_port": 8080, "qbt_user": "admin", "qbt_pass": "adminadmin",
     "qbt_path": "", "qbt_dl_path": "", "monika_cookie": "", "bg_image": "", "bg_align": 50, "bgm_username": "", "bgm_token": "",
+    "bangumi_gateway": "https://auth.congutsun.com",
     "theme": "light", "close_action": 0, "custom_rss": []
 }
 
