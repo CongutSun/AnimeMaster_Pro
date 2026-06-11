@@ -8,7 +8,10 @@ import concurrent.futures
 SUPPORTED_SITES = {
     "MonikaDesign": {"enabled": True},
     "Mikan Project": {"enabled": True},
+    "动漫花园": {"enabled": True},
 }
+
+RESOURCE_PROXY_HOSTS = {"mikanani.me", "mikanime.tv", "share.dmhy.org"}
 
 class SearchWorker(QThread):
     # ✨ 新增错误数组回调和进度条信号
@@ -24,7 +27,8 @@ class SearchWorker(QThread):
         self.incl = [w.strip().lower() for w in incl.replace('，', ',').split(',') if w.strip()]
         self.routes = {
             "MonikaDesign": self._search_monika,
-            "Mikan Project": self._search_mikan
+            "Mikan Project": self._search_mikan,
+            "动漫花园": self._search_dmhy,
         }
 
     def _fetch_single_site(self, site, custom_rss_dict):
@@ -90,10 +94,46 @@ class SearchWorker(QThread):
                 return href
         return entry.get('link', '')
 
+    def _gateway_base(self):
+        return APP_CONFIG.get('bangumi_gateway', '').strip().rstrip('/')
+
+    def _normalize_resource_url(self, url):
+        if not url or url.startswith('magnet:'):
+            return url
+        try:
+            parsed = urllib.parse.urlsplit(url)
+        except Exception:
+            return url
+        if parsed.hostname and parsed.hostname.lower() in RESOURCE_PROXY_HOSTS and parsed.scheme == 'http':
+            parsed = parsed._replace(scheme='https')
+            return urllib.parse.urlunsplit(parsed)
+        return url
+
+    def _proxy_resource_url(self, url, mode):
+        url = self._normalize_resource_url(url)
+        if not url or url.startswith('magnet:'):
+            return url
+
+        gateway = self._gateway_base()
+        if not gateway:
+            return url
+
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            gateway_host = urllib.parse.urlsplit(gateway).hostname
+        except Exception:
+            return url
+
+        if parsed.hostname == gateway_host and parsed.path.startswith('/proxy/'):
+            return url
+        if not parsed.hostname or parsed.hostname.lower() not in RESOURCE_PROXY_HOSTS:
+            return url
+        return f"{gateway}/proxy/{mode}?url={urllib.parse.quote(url, safe='')}"
+
     def _search_rss(self, site_name, url_template):
         url = url_template.replace("{keyword}", urllib.parse.quote(self.name))
         try:
-            r = http_session.get(url, timeout=15)
+            r = http_session.get(self._proxy_resource_url(url, 'rss'), timeout=15)
             if r.status_code != 200: raise Exception(f"HTTP网络拒绝，状态码 {r.status_code}")
             f = feedparser.parse(r.text)
         except Exception as e:
@@ -113,6 +153,7 @@ class SearchWorker(QThread):
                     if passkey_match:
                         connector = "&" if "?" in dl_link else "?"
                         dl_link = f"{dl_link}{connector}passkey={passkey_match.group(1)}"
+                dl_link = self._proxy_resource_url(dl_link, 'torrent')
                 results.append({"title": f"[{site_name}] {e.title}", "link": dl_link})
                 
         if not results and len(f.entries) > 0:
@@ -121,11 +162,15 @@ class SearchWorker(QThread):
 
     def _search_mikan(self):
         try:
-            r = http_session.get(f"https://mikanani.me/RSS/Search?searchstr={urllib.parse.quote(self.name)}", timeout=10)
+            rss_url = f"https://mikanani.me/RSS/Search?searchstr={urllib.parse.quote(self.name)}"
+            r = http_session.get(self._proxy_resource_url(rss_url, 'rss'), timeout=10)
             if r.status_code != 200: raise Exception(f"Mikan拒绝访问，状态码 {r.status_code}")
             f = feedparser.parse(r.text)
-            return [{"title": f"[Mikan] {e.title}", "link": self._get_rss_download_link(e)} for e in f.entries if self.valid(e.title)]
+            return [{"title": f"[Mikan] {e.title}", "link": self._proxy_resource_url(self._get_rss_download_link(e), 'torrent')} for e in f.entries if self.valid(e.title)]
         except Exception as e: raise Exception(f"Mikan解析失败 ({e})")
+
+    def _search_dmhy(self):
+        return self._search_rss("动漫花园", "https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}")
         
     def _search_monika(self):
         found = []; seen = set(); visited = set()

@@ -8,8 +8,10 @@ Cloudflare Worker gateway for AnimeMaster Pro.
 - `/bangumi/web/*` proxies `https://bgm.tv/*`
 - `/bangumi/chii/*` proxies `https://chii.in/*`
 - `/bangumi/image?url=...` proxies Bangumi image hosts only
+- `/proxy/rss?url=...` proxies Mikan and DMHY RSS endpoints
+- `/proxy/torrent?url=...` proxies Mikan and DMHY `.torrent` endpoints
 
-Only Bangumi-related upstream hosts are reachable. Authenticated requests are not cached.
+Only Bangumi, Mikan and DMHY upstream hosts are reachable. Authenticated requests are not cached.
 
 ## Deploy
 
@@ -20,4 +22,4 @@ npm run dry-run
 npm run deploy
 ```
 
-Set the application `Bangumi 网关` value to the deployed Worker domain, for example `https://auth.congutsun.com`.
+Set the application `访问网关` value to the deployed Worker domain, for example `https://auth.congutsun.com`.

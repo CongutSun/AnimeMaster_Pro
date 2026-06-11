@@ -38,6 +38,12 @@ const ALLOWED_IMAGE_HOSTS = [
   'lain.chii.in',
 ];
 
+const RESOURCE_PROXY_HOSTS = new Set([
+  'mikanani.me',
+  'mikanime.tv',
+  'share.dmhy.org',
+]);
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -53,6 +59,14 @@ export default {
 
       if (url.pathname === '/bangumi/image') {
         return proxyImage(request, ctx);
+      }
+
+      if (url.pathname === '/proxy/rss') {
+        return proxyResource(request, ctx, 'rss');
+      }
+
+      if (url.pathname === '/proxy/torrent') {
+        return proxyResource(request, ctx, 'torrent');
       }
 
       for (const [prefix, origin] of Object.entries(ROUTES)) {
@@ -125,6 +139,42 @@ async function proxyImage(request, ctx) {
   });
 
   return fetchWithCache(upstreamRequest, ctx, 604800, false);
+}
+
+async function proxyResource(request, ctx, mode) {
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    return jsonResponse({ error: 'method_not_allowed' }, 405);
+  }
+
+  const sourceUrl = new URL(request.url);
+  const rawTarget = sourceUrl.searchParams.get('url');
+  let targetUrl;
+  try {
+    targetUrl = validateResourceTarget(rawTarget, mode);
+  } catch (error) {
+    return jsonResponse(
+      {
+        error: error instanceof Error ? error.message : 'invalid_target',
+      },
+      400,
+    );
+  }
+
+  const headers = buildUpstreamHeaders(request.headers);
+  headers.set(
+    'Accept',
+    mode === 'torrent'
+      ? 'application/x-bittorrent,application/octet-stream,*/*'
+      : 'application/rss+xml,application/xml,text/xml,*/*',
+  );
+
+  const upstreamRequest = new Request(targetUrl.toString(), {
+    method: request.method,
+    headers,
+    redirect: 'follow',
+  });
+
+  return fetchWithCache(upstreamRequest, ctx, mode === 'torrent' ? 86400 : 300, false);
 }
 
 async function fetchWithCache(upstreamRequest, ctx, ttl, bypassCache) {
@@ -222,6 +272,39 @@ function isAllowedImageHost(hostname) {
   return ALLOWED_IMAGE_HOSTS.some(
     (host) => normalized === host || normalized.endsWith(`.${host}`),
   );
+}
+
+function validateResourceTarget(rawTarget, mode) {
+  if (!rawTarget) {
+    throw new Error('missing_url');
+  }
+
+  const target = new URL(rawTarget);
+  const host = target.hostname.toLowerCase();
+  if (target.protocol !== 'https:' || !RESOURCE_PROXY_HOSTS.has(host)) {
+    throw new Error('forbidden_host');
+  }
+
+  const pathname = target.pathname.toLowerCase();
+  if (
+    mode === 'rss' &&
+    !(
+      pathname.includes('/rss/') ||
+      pathname.includes('/topics/rss/') ||
+      pathname.endsWith('/rss.xml')
+    )
+  ) {
+    throw new Error('not_rss_endpoint');
+  }
+
+  if (
+    mode === 'torrent' &&
+    !(pathname.includes('/download/') || pathname.endsWith('.torrent'))
+  ) {
+    throw new Error('not_torrent_endpoint');
+  }
+
+  return target;
 }
 
 function jsonResponse(payload, status = 200) {
